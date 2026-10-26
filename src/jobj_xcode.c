@@ -591,8 +591,7 @@ int jobj_encode_msg(struct json_object *top_jobj,
             bool skip_tag = false;
 
             if (fld_type->repeated) {
-                // TODO: also check not unpacked
-                bool packed_scalar = ops->wire_type != PB_WIRE_TYPE_LEN;
+                bool packed_scalar = ops->wire_type != PB_WIRE_TYPE_LEN && fld_type->packed;
 
                 if (!arr_jobj) {
                     if (!json_object_is_type(value_jobj, json_type_array)) {

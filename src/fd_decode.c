@@ -37,6 +37,8 @@ struct fd_decode_state {
     struct method_type *current_method;
     char *current_string;
     char *package_name;
+    char *syntax;
+    bool parse_options;
 };
 
 static void *_new_fd_decode_ctx(size_t ctx_size)
@@ -200,6 +202,17 @@ static int fd_decode_field(int nr, enum protobuf_wire_type wire_type, uint64_t v
 
     struct field_type *cur_fld = state->current_field;
     if (cur_fld) {
+        if (state->parse_options) {
+            switch (nr) {
+                case 2: // FieldOptions.packed
+                    cur_fld->packed = value != 0;
+                    cur_fld->packed_set = true;
+                    return FIELD_ACTION_CONSUME;
+                default:
+                    return FIELD_ACTION_SKIP;
+            }
+        }
+
         switch (nr) {
             case 1: // FieldDescriptorProto.name
                 return new_string(&cur_fld->name, &state->current_string, wire_type, (size_t)value);
@@ -225,6 +238,9 @@ static int fd_decode_field(int nr, enum protobuf_wire_type wire_type, uint64_t v
             case 4: // FieldDescriptorProto.label
                 cur_fld->repeated = value == 3; // LABEL_REPEATED
                 return FIELD_ACTION_CONSUME;
+            case 8: // FieldDescriptorProto.options
+                state->parse_options = true;
+                return FIELD_ACTION_PARSE_MESSAGE;
             default:
                 return FIELD_ACTION_SKIP;
         }
@@ -288,6 +304,8 @@ static int fd_decode_field(int nr, enum protobuf_wire_type wire_type, uint64_t v
             return new_enum(&state->current_enum, NULL, wire_type);
         case 6: // FileDescriptorProto.service
             return new_service(&state->current_service, wire_type);
+        case 12: // FileDescriptorProto.syntax
+            return new_string(&state->syntax, &state->current_string, wire_type, (size_t)value);
         default:
             return FIELD_ACTION_SKIP;
     }
@@ -476,6 +494,11 @@ static int fd_decode_end_message(void *ctx)
     struct message_type *cur_msg = state->current_message;
 
     if (cur_fld) {
+        if (state->parse_options) {
+            state->parse_options = false;
+            return 0;
+        }
+
         if (!cur_fld->number || !cur_fld->name || !cur_fld->name[0] ||
                 cur_fld->type == PB_TYPE_RESERVED ||
                 (!cur_fld->type && (!cur_fld->type_name || !cur_fld->type_name[0]))) {
@@ -554,12 +577,27 @@ static int fd_decode_end_message(void *ctx)
         return 0;
     }
 
+    // have entire file descriptor, so can now finish everything up
+
+    bool packed_default = true;
+    if (state->syntax && strcmp(state->syntax, "proto2") == 0) {
+        packed_default = false;
+    }
+
     struct message_type *msg = list_first_entry(&state->messages, struct message_type, list);
     while (!list_entry_is_h(msg, &state->messages, list)) {
         const char* base_name = msg->parent ? msg->parent->name : state->package_name;
         int rv = extend_name(base_name, &msg->name);
         if (rv) {
             return rv;
+        }
+
+        struct field_type *fld;
+        list_for_each_entry(fld, &msg->fields_by_number.list_head, number_node.list) {
+            if (!fld->packed_set) {
+                fld->packed = packed_default;
+                fld->packed_set = true;
+            }
         }
 
         msg = move_message_to_avl(msg);
@@ -599,6 +637,9 @@ static int fd_decode_end_message(void *ctx)
 
     free(state->package_name);
     state->package_name = NULL;
+
+    free(state->syntax);
+    state->syntax = NULL;
 
     return 0;
 }

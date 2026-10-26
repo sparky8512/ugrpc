@@ -36,6 +36,8 @@ struct field_type {
     char *name;
     int number;
     bool repeated;
+    bool packed;        // note: only applies to scalar types
+    bool packed_set;    // only used when parsing protocol
     enum protobuf_field_type type;
     char *type_name;
 };
