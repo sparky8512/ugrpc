@@ -637,7 +637,7 @@ int jobj_encode_msg(struct json_object *top_jobj,
                     if (packed_scalar && !poutbuf) {
                         json_object_set_userdata(arr_jobj, (void *)(long)(size - arr_start), NULL);
                         int length_len = 0;
-                        rv = encode_varint((uint64_t)size, &length_len, NULL);
+                        rv = encode_varint((uint64_t)(size - arr_start), &length_len, NULL);
                         if (rv) {
                             goto out_free;
                         }
