@@ -1194,27 +1194,30 @@ static int jstream_decode_field(int nr, enum protobuf_wire_type wire_type,
 
     bool duplicate_field = false;
     struct json_object *jobj = state->jobj_state.current.jobj;
-    if (!fld_type->repeated) {
-        struct json_object *old_jobj;
-        if (json_object_object_get_ex(jobj, fld_type->name, &old_jobj)) {
+    bool not_same_nr = nr != state->jobj_state.current.prior_field_nr;
+    struct json_object *old_jobj;
+    if (json_object_object_get_ex(jobj, fld_type->name, &old_jobj)) {
+        // for repeated fields, only mark duplicate if noncontiguous, so it
+        // gets reported as mishandled
+        if (!fld_type->repeated || not_same_nr) {
             duplicate_field = true;
-        } else {
-            int json_rv = json_object_object_add_ex(jobj, fld_type->name, NULL,
-                    JSON_C_OBJECT_ADD_CONSTANT_KEY | JSON_C_OBJECT_ADD_KEY_IS_NEW);
-            if (json_rv) {
-                return ERROR_ALLOCATION;
-            }
+        }
+    } else {
+        // add empty marker object to track field presence
+        int json_rv = json_object_object_add_ex(jobj, fld_type->name, NULL,
+                JSON_C_OBJECT_ADD_CONSTANT_KEY | JSON_C_OBJECT_ADD_KEY_IS_NEW);
+        if (json_rv) {
+            return ERROR_ALLOCATION;
         }
     }
 
-    bool mishandled_duplicate = duplicate_field &&
-        (nr != state->jobj_state.current.prior_field_nr || !state->deferred_jobj);
+    bool mishandled_duplicate = duplicate_field && (not_same_nr || !state->deferred_jobj);
 
     // improperly repeated fields will typically be contiguous, in which
     // case, just drop prior one if possible and keep last one as per wire
     // format documentation...
     if (state->deferred_jobj) {
-        if (nr != state->jobj_state.current.prior_field_nr) {
+        if (not_same_nr) {
             int write_rv = write_jobj_str(state->deferred_jobj);
             if (write_rv) {
                 return write_rv;

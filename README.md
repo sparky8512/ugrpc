@@ -157,7 +157,6 @@ There are several `cmake` options defined in `CMakeLists.txt`. The `ENABLE_UCLIE
 The following are correctness issues and should be addressed before this project can be considered "done":
 - correct handling of repeated OneOf messages; unlikely to happen unless protocol data mismatch, but decoders are supposed to handle
 - merge repeated messages in non-repeated fields; unlikely to happen unless protocol data mismatch, but decoders are supposed to handle
-- detect noncontiguous repeated fields in low-memory algorithm decode; unlikely to happen in real life, but technically allowed by the specification
 - tests, and anything that these turn up as broken
 
 The following are features that are not currently supported and may or may not ever be:
