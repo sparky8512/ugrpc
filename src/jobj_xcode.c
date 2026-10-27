@@ -1055,8 +1055,16 @@ static int jobj_decode_field(int nr, enum protobuf_wire_type wire_type,
             return ERROR_ALLOCATION;
         }
     } else {
-        json_rv = json_object_object_add_ex(jobj, fld_type->name, fld_jobj,
-                JSON_C_OBJECT_ADD_CONSTANT_KEY);
+        struct json_object *old_jobj;
+        if (fld_type->type == PB_TYPE_MESSAGE &&
+            json_object_object_get_ex(jobj, fld_type->name, &old_jobj)) {
+            // repeated messages in non-repeated field get merged (recursively)
+            json_object_put(fld_jobj);
+            fld_jobj = old_jobj;
+        } else {
+            json_rv = json_object_object_add_ex(jobj, fld_type->name, fld_jobj,
+                    JSON_C_OBJECT_ADD_CONSTANT_KEY);
+        }
         if (json_rv) {
             json_object_put(fld_jobj);
             return ERROR_ALLOCATION;
