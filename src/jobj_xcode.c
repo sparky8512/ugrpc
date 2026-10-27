@@ -810,6 +810,7 @@ out_free_jobj:
 struct jobj_decode_nest_state {
     struct json_object *jobj;
     struct message_type *msg_type;
+    struct json_object *oneof_jobj;
     // following used only by jstream_decode
     bool decoding_array;
     int prior_field_nr;
@@ -857,7 +858,8 @@ void init_jx_decode_ctx(void *ctx, struct json_object *top_jobj,
 
 static int jx_decode_field(int nr, enum protobuf_wire_type wire_type,
         uint64_t value, struct jobj_decode_state *state,
-        struct field_type **pfld_type, struct json_object **pfld_jobj)
+        struct field_type **pfld_type, struct json_object **pfld_jobj,
+        struct json_object **pold_oneof_jobj)
 {
     struct message_type *msg_type = state->current.msg_type;
 
@@ -925,6 +927,39 @@ static int jx_decode_field(int nr, enum protobuf_wire_type wire_type,
         ops->varint.un_xform(&value);
     }
 
+    *pold_oneof_jobj = NULL;
+    if (fld_type->oneof) {
+        // track oneof presence in a JSON object kept in the nest state
+        char oneof_str[9];
+        if (snprintf(oneof_str, 9, "%x", fld_type->oneof) < 0) {
+            return ERROR_INTERNAL(6);
+        }
+
+        if (!state->current.oneof_jobj) {
+            state->current.oneof_jobj = json_object_new_object();
+            if (!state->current.oneof_jobj) {
+                return ERROR_ALLOCATION;
+            }
+        }
+        struct json_object *oneof_jobj = state->current.oneof_jobj;
+
+        if (json_object_object_get_ex(oneof_jobj, oneof_str, pold_oneof_jobj)) {
+            // keep around for calling code, which must call put on it
+            json_object_get(*pold_oneof_jobj);
+        }
+
+        struct json_object *this_one_jobj = json_object_new_string(fld_type->name);
+        if (!this_one_jobj) {
+            return ERROR_ALLOCATION;
+        }
+
+        int json_rv = json_object_object_add(oneof_jobj, oneof_str, this_one_jobj);
+        if (json_rv) {
+            json_object_put(this_one_jobj);
+            return ERROR_ALLOCATION;
+        }
+    }
+
     int rv = FIELD_ACTION_CONSUME;
     struct json_object *fld_jobj;
     switch (ops->json_type) {
@@ -971,6 +1006,8 @@ static int jx_decode_field(int nr, enum protobuf_wire_type wire_type,
             } else {
                 state->current_string = malloc(ops->ldv.decode_len((int)value));
                 if (!state->current_string) {
+                    json_object_put(*pold_oneof_jobj);
+                    *pold_oneof_jobj = NULL;
                     return ERROR_ALLOCATION;
                 }
 
@@ -986,10 +1023,14 @@ static int jx_decode_field(int nr, enum protobuf_wire_type wire_type,
             break;
         default:
             // null or array, which should not happen
+            json_object_put(*pold_oneof_jobj);
+            *pold_oneof_jobj = NULL;
             return ERROR_INTERNAL(5);
     }
 
     if (!fld_jobj) {
+        json_object_put(*pold_oneof_jobj);
+        *pold_oneof_jobj = NULL;
         return ERROR_ALLOCATION;
     }
 
@@ -1016,6 +1057,7 @@ static int jx_nest_message(struct json_object *fld_jobj,
     }
     state->current.jobj = fld_jobj;
     state->current.msg_type = fld_msg_type;
+    state->current.oneof_jobj = NULL;
 
     return FIELD_ACTION_PARSE_MESSAGE;
 }
@@ -1026,14 +1068,21 @@ static int jobj_decode_field(int nr, enum protobuf_wire_type wire_type,
     struct jobj_decode_state *state = (struct jobj_decode_state *)ctx;
 
     struct field_type *fld_type;
-    struct json_object *fld_jobj;
-    int rv = jx_decode_field(nr, wire_type, value, state, &fld_type, &fld_jobj);
+    struct json_object *fld_jobj, *old_oneof_jobj;
+    int rv = jx_decode_field(nr, wire_type, value, state, &fld_type, &fld_jobj, &old_oneof_jobj);
     if (rv != FIELD_ACTION_CONSUME && rv != FIELD_ACTION_PARSE_BYTES) {
         return rv;
     }
 
     int json_rv;
     struct json_object *jobj = state->current.jobj;
+
+    if (old_oneof_jobj) {
+        // duplicate oneof, remove prior one
+        json_object_object_del(jobj, json_object_get_string(old_oneof_jobj));
+        json_object_put(old_oneof_jobj);
+    }
+
     if (fld_type->repeated) {
         struct json_object *arr_jobj;
         if (!json_object_object_get_ex(jobj, fld_type->name, &arr_jobj)) {
@@ -1130,6 +1179,9 @@ static int jobj_decode_end_message(void *ctx)
     struct jobj_decode_state *state = (struct jobj_decode_state *)ctx;
     struct json_object *jobj = state->current.jobj;
 
+    json_object_put(state->current.oneof_jobj);
+    state->current.oneof_jobj = NULL;
+
     struct jobj_decode_nest_state *nest = json_object_get_userdata(jobj);
     if (nest) {
         state->current = *nest;
@@ -1193,9 +1245,9 @@ static int jstream_decode_field(int nr, enum protobuf_wire_type wire_type,
     struct jstream_decode_state *state = (struct jstream_decode_state *)ctx;
 
     struct field_type *fld_type;
-    struct json_object *fld_jobj;
-    int rv = jx_decode_field(nr, wire_type, value,&state->jobj_state,
-            &fld_type, &fld_jobj);
+    struct json_object *fld_jobj, *old_oneof_jobj;
+    int rv = jx_decode_field(nr, wire_type, value,&state->jobj_state, &fld_type,
+            &fld_jobj, &old_oneof_jobj);
     if (rv != FIELD_ACTION_CONSUME && rv != FIELD_ACTION_PARSE_BYTES) {
         return rv;
     }
@@ -1203,6 +1255,16 @@ static int jstream_decode_field(int nr, enum protobuf_wire_type wire_type,
     bool duplicate_field = false;
     struct json_object *jobj = state->jobj_state.current.jobj;
     bool not_same_nr = nr != state->jobj_state.current.prior_field_nr;
+
+    if (old_oneof_jobj) {
+        // duplicate oneof, drop this one and report as mishandled, unless the
+        // the duplicate was immediately prior, and got deferred (which is
+        // unlikely, as most oneofs will me message type))
+        duplicate_field = true;
+        not_same_nr = false;    // treat as same field type for logic below
+        json_object_put(old_oneof_jobj);
+    }
+
     struct json_object *old_jobj;
     if (json_object_object_get_ex(jobj, fld_type->name, &old_jobj)) {
         // for repeated fields, only mark duplicate if noncontiguous, so it

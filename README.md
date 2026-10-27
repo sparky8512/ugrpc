@@ -155,7 +155,6 @@ There are several `cmake` options defined in `CMakeLists.txt`. The `ENABLE_UCLIE
 ## To be done (or not)
 
 The following are correctness issues and should be addressed before this project can be considered "done":
-- correct handling of repeated OneOf messages; unlikely to happen unless protocol data mismatch, but decoders are supposed to handle
 - tests, and anything that these turn up as broken
 
 The following are features that are not currently supported and may or may not ever be:

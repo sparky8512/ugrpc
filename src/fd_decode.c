@@ -241,6 +241,12 @@ static int fd_decode_field(int nr, enum protobuf_wire_type wire_type, uint64_t v
             case 8: // FieldDescriptorProto.options
                 state->parse_options = true;
                 return FIELD_ACTION_PARSE_MESSAGE;
+            case 9: // FieldDescriptorProto.oneof_index
+                int64_t svalue = (int64_t)value;
+                if (svalue >= 0 && svalue <= INT32_MAX) {
+                    cur_fld->oneof = (unsigned int)(value + 1);
+                } // else ignore negative or invalid int32
+                return FIELD_ACTION_CONSUME;
             default:
                 return FIELD_ACTION_SKIP;
         }
@@ -257,7 +263,7 @@ static int fd_decode_field(int nr, enum protobuf_wire_type wire_type, uint64_t v
                 return new_message(&state->current_message, cur_msg, wire_type);
             case 4: // DescriptorProto.enum_type
                 return new_enum(&state->current_enum, cur_msg, wire_type);
-            case 8: // DescriptorProto.oneof_decl needed?
+            case 8: // DescriptorProto.oneof_decl not needed, use index value
             default:
                 return FIELD_ACTION_SKIP;
         }

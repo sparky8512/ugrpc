@@ -39,6 +39,7 @@ struct field_type {
     bool packed;        // note: only applies to scalar types
     bool packed_set;    // only used when parsing protocol
     enum protobuf_field_type type;
+    unsigned int oneof; // oneof index + 1, or 0 if not set
     char *type_name;
 };
 
