@@ -77,7 +77,7 @@ The protocol data used by the `service` and `reflect` commands to encode and dec
 
 The camelCase [ProtoJSON](https://protobuf.dev/programming-guides/json/) form of JSON is not supported for either input or output. Instead, use the actual field names as they are specified in the protocol definition, which typically use underscores.
 
-Support is targeted at the `proto3` syntax of Protocol Buffers messages. `proto2` syntax messages should decode without error, but some types (currently) may not encode correctly. `editions` syntax messages will probably only encode and decode correctly if no `editions`-specific feature that alters the encoding vs `proto3` is used.
+Support is targeted at the `proto3` syntax of Protocol Buffers messages. `proto2` syntax messages should decode without error, but this has not been tested thoroughly. `editions` syntax messages will probably only encode and decode correctly if no `editions`-specific feature that alters the encoding vs `proto3` is used.
 
 Performance will probably not be as high as executables built with compiled protocol data (using `protoc`). This is a trade-off for the orders of magnitude reduction in code size.
 
@@ -155,7 +155,7 @@ There are several `cmake` options defined in `CMakeLists.txt`. The `ENABLE_UCLIE
 ## To be done (or not)
 
 The following are correctness issues and should be addressed before this project can be considered "done":
-- tests, and anything that these turn up as broken
+- fix the things tests show as broken
 
 The following are features that are not currently supported and may or may not ever be:
 - HTTP2 support for the `service` and `reflect` commands, probably using libcurl, in order to support gRPC (as opposed to gRPC-Web)
