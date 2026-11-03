@@ -1,7 +1,7 @@
 """Generate test data for encode and decode of various protobuf types
 
  To run the tests, move the files this script generates onto a system
- 'ugrpc' in PATH and then run test_xcode.sh on that system.
+ with 'ugrpc' in PATH and then run test_xcode.sh on that system.
 """
 
 import base64
@@ -51,7 +51,7 @@ DECODE_PROTO3_TYPES = [
     {
         "type": descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE,
         "type_name": "Test008", # this is the INT32 non-repeated test msg
-        "values": [ {"value": 1}, {} ],   # filled in later, once message class exists
+        "values": [ {"value": 1}, {} ],
     },
     {
         "type": descriptor_pb2.FieldDescriptorProto.TYPE_BYTES,
@@ -128,6 +128,12 @@ MULTIFIELD_PROTO3_TYPES = [
         "value": "EMBED_ONE",
     },
     {
+        "field": "alt_message",
+        "type": descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE,
+        "type_name": "MultiTest",
+        "value": {"a": 9, "b": 10}, # also set programmatically, so do not change
+    },
+    {
         "field": "message",
         "type": descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE,
         "type_name": "MultiTest",
@@ -157,6 +163,7 @@ DECODE_PROTO2_TYPES = [
     },
 ]
 
+NEST_DEPTHS = (1, 5, 97)    # higher than 97 breaks the Python impl
 
 def serialize_bytes(obj):
     if isinstance(obj, bytes):
@@ -192,10 +199,11 @@ def write_gmsg_and_json(msg, jobj, i, j, direction, cat_msg=None):
             fgmsg.close()
 
     # 0 values, empty array, empty string all encode to empty object, so reflect
-    # that in the decoded JSON
+    # that in the decoded JSON (but if value is empty object, keep it)
     if direction != "Enc" and "value" in jobj:
         value = jobj["value"]
-        if not value or (isinstance(value, str) and value == "TEST_UNSPECIFIED"):
+        if (not value and not isinstance(value, dict) or 
+            (isinstance(value, str) and value == "TEST_UNSPECIFIED")):
             jobj = {}
 
     fjson = open(basename + ".json", "w", newline="\n")
@@ -253,7 +261,7 @@ def gen_proto3_tests(pool):
 
             fd_proto.message_type.append(msg_desc)
 
-    for depth in (1, 5, 98):    # higher than 98 breaks the Python decode impl
+    for depth in NEST_DEPTHS:
         fld_desc = descriptor_pb2.FieldDescriptorProto()
         fld_desc.name = "value"
         fld_desc.number = 1
@@ -375,6 +383,7 @@ def gen_proto3_tests(pool):
                 msg = msg_class(value=msg_vals)
                 write_gmsg_and_json(msg, {"value":msg_vals}, i, 0, "Dec")
                 if info["type"] == descriptor_pb2.FieldDescriptorProto.TYPE_INT32:
+                    # test cases for empty repeated, long message
                     for j, msg_vals in enumerate(([], [info["values"][0]] * 8192), start=1):
                         msg = msg_class(value=msg_vals)
                         write_gmsg_and_json(msg, {"value":msg_vals}, i, j, "Dec")
@@ -386,7 +395,7 @@ def gen_proto3_tests(pool):
                 continue
             i += 1
 
-    for depth in (1, 5, 98):
+    for depth in NEST_DEPTHS:
         jobj = {"value": 1}
         for j in range(depth - 1):
             jobj = {"nest": jobj}
@@ -401,9 +410,12 @@ def gen_proto3_tests(pool):
     msg = msg_class()
     jobj = {}
     for info in MULTIFIELD_PROTO3_TYPES:
-        if info["type"] == descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE:
+        if info["field"] == "message":
             setattr(getattr(msg, info["field"]), "a", 7)
             setattr(getattr(msg, info["field"]), "b", 8)
+        elif info["field"] == "alt_message":
+            setattr(getattr(msg, info["field"]), "a", 9)
+            setattr(getattr(msg, info["field"]), "b", 10)
         elif "repeat" in info and info["repeat"]:
             getattr(msg, info["field"]).extend(info["value"])
         else:
@@ -412,28 +424,30 @@ def gen_proto3_tests(pool):
     write_gmsg_and_json(msg, jobj, i, 0, "Dec")
 
     # test repeat of non-repeating scalar field
-    alt_msg = msg_class(number=10)
-    alt_jobj = jobj.copy()
-    alt_jobj["number"] = 10
-    write_gmsg_and_json(msg, alt_jobj, i, 1, "DecOnly", cat_msg=alt_msg)
+    alt_msg = msg_class(number=11)
+    merged_jobj = jobj.copy()
+    merged_jobj["number"] = 11
+    write_gmsg_and_json(msg, merged_jobj, i, 1, "DecOnly", cat_msg=alt_msg)
 
     # test repeat of non-repeating message field
-    alt_msg = msg_class(message={"b": 11})
-    alt_jobj = jobj.copy()
-    alt_jobj["message"]["b"] = 11
-    write_gmsg_and_json(msg, alt_jobj, i, 2, "DecOnly", cat_msg=alt_msg)
+    alt_msg = msg_class(message={"b": 12})
+    merged_jobj = jobj.copy()
+    merged_jobj["message"] = jobj["message"].copy()
+    merged_jobj["message"]["b"] = 12
+    write_gmsg_and_json(msg, merged_jobj, i, 2, "DecOnly", cat_msg=alt_msg)
 
     # test noncontiguous repeating field
-    alt_msg = msg_class(numbers=[12, 13, 14])
-    alt_jobj = jobj.copy()
-    alt_jobj["numbers"].extend([12, 13, 14])
-    write_gmsg_and_json(msg, alt_jobj, i, 3, "DecOnly", cat_msg=alt_msg)
+    alt_msg = msg_class(numbers=[13, 14, 15])
+    merged_jobj = jobj.copy()
+    merged_jobj["numbers"] = jobj["numbers"].copy()
+    merged_jobj["numbers"].extend([13, 14, 15])
+    write_gmsg_and_json(msg, merged_jobj, i, 3, "DecOnly", cat_msg=alt_msg)
 
     # test contiguous repeat of non-repeating scalar, low mem algo should be
     # able to handle this one
-    msg = msg_class(number=15)
-    alt_msg = msg_class(number=16)
-    jobj = {"number": 16}
+    msg = msg_class(number=16)
+    alt_msg = msg_class(number=17)
+    jobj = {"number": 17}
     write_gmsg_and_json(msg, jobj, i, 4, "DecOnly", cat_msg=alt_msg)
 
     i += 1
@@ -445,9 +459,12 @@ def gen_proto3_tests(pool):
         if "repeat" in info and info["repeat"]:
             continue
         msg = msg_class()
-        if info["type"] == descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE:
+        if info["field"] == "message":
             setattr(getattr(msg, info["field"]), "a", 7)
             setattr(getattr(msg, info["field"]), "b", 8)
+        elif info["field"] == "alt_message":
+            setattr(getattr(msg, info["field"]), "a", 9)
+            setattr(getattr(msg, info["field"]), "b", 10)
         else:
             setattr(msg, info["field"], info["value"])
         jobj = {info["field"]: info["value"]}
@@ -455,22 +472,28 @@ def gen_proto3_tests(pool):
         j += 1
 
     # test more than one OneOf
-    alt_msg = msg_class(number=10)
-    alt_jobj = {"number": 10}
-    write_gmsg_and_json(msg, alt_jobj, i, 1, "DecOnly", cat_msg=alt_msg)
+    alt_msg = msg_class(number=11)
+    merged_jobj = {"number": 11}
+    write_gmsg_and_json(msg, merged_jobj, i, 1, "DecOnly", cat_msg=alt_msg)
 
     # test duplicate OneOf (same field)
-    alt_msg = msg_class(message={"b": 11})
-    alt_jobj = jobj.copy()
-    alt_jobj["message"]["b"] = 11
-    write_gmsg_and_json(msg, alt_jobj, i, 2, "DecOnly", cat_msg=alt_msg)
+    alt_msg = msg_class(message={"b": 12})
+    merged_jobj = jobj.copy()
+    merged_jobj["message"] = jobj["message"].copy()
+    merged_jobj["message"]["b"] = 12
+    write_gmsg_and_json(msg, merged_jobj, i, 2, "DecOnly", cat_msg=alt_msg)
+
+    # test duplicate OneOf (different field, but same message type)
+    alt_msg = msg_class(alt_message={"b": 12})
+    merged_jobj = {"alt_message": {"b": 12}}
+    write_gmsg_and_json(msg, merged_jobj, i, 3, "DecOnly", cat_msg=alt_msg)
 
     # test more than one OneOf, both scalars, so low mem algo should be able
     # to handle
-    msg =  msg_class(number=17)
+    msg =  msg_class(number=18)
     alt_msg = msg_class(boolean=True)
     jobj = {"boolean": True}
-    write_gmsg_and_json(msg, jobj, i, 3, "DecOnly", cat_msg=alt_msg)
+    write_gmsg_and_json(msg, jobj, i, 4, "DecOnly", cat_msg=alt_msg)
 
     i += 1
 

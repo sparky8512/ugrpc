@@ -18,6 +18,11 @@
 #include <libubox/avl.h>
 #include <libubox/avl-cmp.h>
 
+#ifndef list_prev_entry
+// This was added recently, so may not be present in list.h
+#define list_prev_entry(pos, member) list_entry((pos)->member.prev, typeof(*(pos)), member)
+#endif
+
 struct service_type {
     struct list_head list;
 
@@ -426,7 +431,7 @@ static struct enum_type* move_enum_to_avl(struct enum_type *enm)
 
 static struct message_type* move_message_to_avl(struct message_type *msg)
 {
-    struct message_type *next_msg = list_next_entry(msg, list);
+    struct message_type *prev_msg = list_prev_entry(msg, list);
     list_del(&msg->list);
 
     struct message_type *old_msg = add_message(msg);
@@ -434,7 +439,8 @@ static struct message_type* move_message_to_avl(struct message_type *msg)
         free_message(old_msg);
     }
 
-    return next_msg;
+    // this one returns prev because caller iterates backwards
+    return prev_msg;
 }
 
 static struct method_type* move_method_to_avl(struct method_type *mth)
@@ -590,7 +596,9 @@ static int fd_decode_end_message(void *ctx)
         packed_default = false;
     }
 
-    struct message_type *msg = list_first_entry(&state->messages, struct message_type, list);
+    // iterate backwards so parent name is extended before any of its children
+    // need to reference it
+    struct message_type *msg = list_last_entry(&state->messages, struct message_type, list);
     while (!list_entry_is_h(msg, &state->messages, list)) {
         const char* base_name = msg->parent ? msg->parent->name : state->package_name;
         int rv = extend_name(base_name, &msg->name);

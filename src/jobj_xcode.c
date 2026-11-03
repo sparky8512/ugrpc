@@ -11,6 +11,7 @@
 
 #include <errno.h>
 #include <float.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -150,7 +151,7 @@ static int get_json_float(struct json_object *jobj, uint64_t *value)
 {
     errno = 0;
     double dvalue = json_object_get_double(jobj);
-    if (errno || dvalue > FLT_MAX || dvalue < -FLT_MAX) {
+    if (errno || (!isinf(dvalue) && (dvalue > FLT_MAX || dvalue < -FLT_MAX))) {
         return 1;
     }
 
@@ -180,9 +181,9 @@ static void xform_zigzag32(uint64_t *value)
 {
     int32_t svalue = (int32_t)*value;
     if (svalue < 0) {
-        *value = (uint64_t)((-(svalue + 1) << 1) + 1);
+        *value = (uint64_t)(uint32_t)((-(svalue + 1) << 1) + 1);
     } else {
-        *value = (uint64_t)(svalue << 1);
+        *value = (uint64_t)(uint32_t)(svalue << 1);
     }
 }
 
@@ -778,7 +779,8 @@ out_free:
 int jstr_encode_msg(const char* json_str, struct message_type *msg_type,
         struct output_buffer *outbuf)
 {
-    struct json_tokener *json_tok = json_tokener_new();
+    // allow nesting up to max nest of typical protobuf decoder
+    struct json_tokener *json_tok = json_tokener_new_ex(100);
     if (!json_tok) {
         return ERROR_ALLOCATION;
     }
@@ -790,14 +792,16 @@ int jstr_encode_msg(const char* json_str, struct message_type *msg_type,
     size_t parsed = json_tokener_get_parse_end(json_tok);
     json_tokener_free(json_tok);
 
+    int rv;
     if (json_err != json_tokener_success) {
         const char *err_msg = json_err == json_tokener_continue ?
             "incomplete JSON object" : json_tokener_error_desc(json_err);
         fprintf(stderr, "parsing of request JSON failed at offset %d: %s\n", (int)parsed, err_msg);
+        rv = ERROR_REPORTED;
         goto out_free_jobj;
     }
 
-    int rv = jobj_encode_msg(jobj, msg_type, outbuf);
+    rv = jobj_encode_msg(jobj, msg_type, outbuf);
 
 out_free_jobj:
     json_object_put(jobj);
@@ -944,8 +948,13 @@ static int jx_decode_field(int nr, enum protobuf_wire_type wire_type,
         struct json_object *oneof_jobj = state->current.oneof_jobj;
 
         if (json_object_object_get_ex(oneof_jobj, oneof_str, pold_oneof_jobj)) {
-            // keep around for calling code, which must call put on it
-            json_object_get(*pold_oneof_jobj);
+            if (!strcmp(fld_type->name, json_object_get_string(*pold_oneof_jobj))) {
+                // duplicate OneOf of same field, treat same as dup non-repeat
+                *pold_oneof_jobj = NULL;
+            } else {
+                // keep around for calling code, which must call put on it
+                json_object_get(*pold_oneof_jobj);
+            }
         }
 
         struct json_object *this_one_jobj = json_object_new_string(fld_type->name);

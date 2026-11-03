@@ -72,6 +72,7 @@ static inline void start_fixed_int(struct pb_decode_info *info)
 static int get_fixed_int(struct pb_decode_info *info, const uint8_t **pbuf, const uint8_t *buf_end)
 {
     const uint8_t *buf = *pbuf;
+    int max_bytes = info->wire_type == PB_WIRE_TYPE_I64 ? 8 : 4;
     while (true) {
         if (buf >= buf_end) {
             *pbuf = buf;
@@ -79,8 +80,7 @@ static int get_fixed_int(struct pb_decode_info *info, const uint8_t **pbuf, cons
         }
 
         uint8_t b = *buf++;
-        int max_bytes = info->wire_type == PB_WIRE_TYPE_I64 ? 8 : 4;
-        info->value = info->value | b << 8 * (max_bytes - info->value_bytes);
+        info->value = info->value | (uint64_t)b << 8 * (max_bytes - info->value_bytes);
         info->value_bytes--;
         if (info->value_bytes == 0) {
             *pbuf = buf;
