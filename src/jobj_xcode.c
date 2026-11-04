@@ -143,7 +143,12 @@ static int get_json_double(struct json_object *jobj, uint64_t *value)
     errno = 0;
     double value_fp = json_object_get_double(jobj);
 
-    memcpy(value, &value_fp, sizeof(*value));
+    if (isnan(value_fp)) {
+        // use a specific value for NaN, not whatever platform thinks best
+        *value = 0x7ff8000000000000;
+    } else {
+        memcpy(value, &value_fp, sizeof(*value));
+    }
     return errno ? 1 : 0;
 }
 
@@ -155,10 +160,15 @@ static int get_json_float(struct json_object *jobj, uint64_t *value)
         return 1;
     }
 
-    float fvalue = (float)dvalue;
-    uint32_t value_int;
-    memcpy(&value_int, &fvalue, sizeof(value_int));
-    *value = (uint64_t)value_int;
+    if (isnan(dvalue)) {
+        // use a specific value for NaN, not whatever platform thinks best
+        *value = 0x7fc00000;
+    } else {
+        float fvalue = (float)dvalue;
+        uint32_t value_int;
+        memcpy(&value_int, &fvalue, sizeof(value_int));
+        *value = (uint64_t)value_int;
+    }
 
     return 0;
 }

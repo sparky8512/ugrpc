@@ -369,6 +369,26 @@ def gen_proto3_tests(pool):
 
     fd_proto.message_type.append(msg_desc)
 
+    # for proto3_optional testing
+    msg_desc = descriptor_pb2.DescriptorProto()
+    msg_desc.name = "Test{:03}".format(i)
+    i += 1
+
+    fld_desc = descriptor_pb2.FieldDescriptorProto()
+    fld_desc.name = "option"
+    fld_desc.number = 1
+    fld_desc.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    fld_desc.type = descriptor_pb2.FieldDescriptorProto.TYPE_INT32
+    fld_desc.oneof_index = 0
+    fld_desc.proto3_optional = True
+    msg_desc.field.append(fld_desc)
+
+    oof_desc = descriptor_pb2.OneofDescriptorProto()
+    oof_desc.name = "_option"   # synthetic oneof for proto3_optional
+    msg_desc.oneof_decl.append(oof_desc)
+
+    fd_proto.message_type.append(msg_desc)
+
     fd = pool.Add(fd_proto)
 
     i = 0
@@ -502,6 +522,18 @@ def gen_proto3_tests(pool):
     alt_msg = msg_class(boolean=True)
     merged_jobj = {"boolean": True}
     write_gmsg_and_json(msg, merged_jobj, i, 4, "DecOnly", cat_msg=alt_msg)
+
+    i += 1
+
+    # test proto3_optional
+    msg_type = pool.FindMessageTypeByName("ugrpc.test.Test{:03}".format(i))
+    msg_class = message_factory.GetMessageClass(msg_type)
+
+    msg =  msg_class(option=30)
+    write_gmsg_and_json(msg, {"option": 30}, i, 0, "Dec")
+
+    msg =  msg_class()
+    write_gmsg_and_json(msg, {}, i, 1, "Dec")
 
     i += 1
 

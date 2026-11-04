@@ -154,9 +154,6 @@ There are several `cmake` options defined in `CMakeLists.txt`. The `ENABLE_UCLIE
 
 ## To be done (or not)
 
-The following are correctness issues and should be addressed before this project can be considered "done":
-- fix the things tests show as broken
-
 The following are features that are not currently supported and may or may not ever be:
 - HTTP2 support for the `service` and `reflect` commands, probably using libcurl, in order to support gRPC (as opposed to gRPC-Web)
 - SSL (HTTPS) support for gRPC-Web
