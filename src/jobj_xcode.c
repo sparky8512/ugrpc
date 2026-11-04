@@ -1122,10 +1122,10 @@ static int jobj_decode_field(int nr, enum protobuf_wire_type wire_type,
         } else {
             json_rv = json_object_object_add_ex(jobj, fld_type->name, fld_jobj,
                     JSON_C_OBJECT_ADD_CONSTANT_KEY);
-        }
-        if (json_rv) {
-            json_object_put(fld_jobj);
-            return ERROR_ALLOCATION;
+            if (json_rv) {
+                json_object_put(fld_jobj);
+                return ERROR_ALLOCATION;
+            }
         }
     }
 
@@ -1266,11 +1266,10 @@ static int jstream_decode_field(int nr, enum protobuf_wire_type wire_type,
     bool not_same_nr = nr != state->jobj_state.current.prior_field_nr;
 
     if (old_oneof_jobj) {
-        // duplicate oneof, drop this one and report as mishandled, unless the
-        // the duplicate was immediately prior, and got deferred (which is
-        // unlikely, as most oneofs will me message type))
+        // duplicate oneof, drop this one and report as mishandled, unless
+        // the duplicate was immediately prior, same field, and got deferred
+        // (which is unlikely)
         duplicate_field = true;
-        not_same_nr = false;    // treat as same field type for logic below
         json_object_put(old_oneof_jobj);
     }
 

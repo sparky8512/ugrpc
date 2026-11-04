@@ -471,12 +471,14 @@ def gen_proto3_tests(pool):
         write_gmsg_and_json(msg, jobj, i, j, "Dec")
         j += 1
 
-    # test more than one OneOf
+    # at this point, msg and jobj will have {"message":{"a":7, "b": 8}}
+
+    # test more than one OneOf message vs scalar
     alt_msg = msg_class(number=11)
     merged_jobj = {"number": 11}
     write_gmsg_and_json(msg, merged_jobj, i, 1, "DecOnly", cat_msg=alt_msg)
 
-    # test duplicate OneOf (same field)
+    # test duplicate OneOf (same field, message)
     alt_msg = msg_class(message={"b": 12})
     merged_jobj = jobj.copy()
     merged_jobj["message"] = jobj["message"].copy()
@@ -488,12 +490,18 @@ def gen_proto3_tests(pool):
     merged_jobj = {"alt_message": {"b": 12}}
     write_gmsg_and_json(msg, merged_jobj, i, 3, "DecOnly", cat_msg=alt_msg)
 
-    # test more than one OneOf, both scalars, so low mem algo should be able
-    # to handle
+    # test duplicate OneOf (same field, scalar)
     msg =  msg_class(number=18)
+    alt_msg = msg_class(number=19)
+    merged_jobj = {"number": 19}
+    write_gmsg_and_json(msg, merged_jobj, i, 4, "DecOnly", cat_msg=alt_msg)
+
+    # test more than one OneOf, both scalars, but different field, so low mem
+    # algo still does not handle correctly
+    msg =  msg_class(number=20)
     alt_msg = msg_class(boolean=True)
-    jobj = {"boolean": True}
-    write_gmsg_and_json(msg, jobj, i, 4, "DecOnly", cat_msg=alt_msg)
+    merged_jobj = {"boolean": True}
+    write_gmsg_and_json(msg, merged_jobj, i, 4, "DecOnly", cat_msg=alt_msg)
 
     i += 1
 
